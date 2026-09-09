@@ -1,5 +1,7 @@
 # Virtual Memory Simulator
 
+**▶ Live demo: https://vm-simulator-playground.vercel.app** — pick a workload, frame count and policy in the browser and compare page-fault rates (runs on a Vercel Python function; code in [`web/`](web/)).
+
 A demand-paging simulator that models the hardware/OS path for every memory
 reference: **address translation** through a two-level page table and a **TLB**,
 **page faults**, frame allocation, **page replacement**, and dirty-page
