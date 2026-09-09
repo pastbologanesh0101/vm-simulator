@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Memory Simulator</title>
+<style>
+  :root{
+    --bg:#0d1117;--panel:#161b22;--border:#30363d;--fg:#e6edf3;--muted:#8b949e;
+    --accent:#2f81f7;--ok:#3fb950;--err:#f85149;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  header{padding:20px 24px;border-bottom:1px solid var(--border)}
+  h1{margin:0;font-size:18px} h1 span{color:var(--muted);font-weight:400}
+  .sub{margin:4px 0 0;color:var(--muted);font-size:13px}
+  .sub a{color:var(--accent);text-decoration:none}
+  main{max-width:960px;margin:0 auto;padding:20px 24px}
+  .controls{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;
+    background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .f{display:flex;flex-direction:column;gap:4px}
+  .f label{font-size:12px;color:var(--muted)}
+  select,input,button{font:inherit;background:#0d1117;color:var(--fg);
+    border:1px solid var(--border);border-radius:6px;padding:7px 10px}
+  input[type=number]{width:96px}
+  button{cursor:pointer;background:var(--panel)}
+  button.go{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+  button.go:disabled{opacity:.6;cursor:progress}
+  .status{margin:12px 0 4px;font-size:12px;color:var(--muted);min-height:16px}
+  .status.ok{color:var(--ok)} .status.err{color:var(--err)}
+  table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px}
+  th,td{border:1px solid var(--border);padding:7px 10px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  thead th{background:var(--panel)}
+  tbody tr.best td{background:rgba(63,185,80,.12)}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;
+    padding:16px;margin-top:16px;overflow:auto}
+  .card h3{margin:0 0 8px;font-size:14px}
+  .note{color:var(--muted);font-size:12px;margin-top:8px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px}
+  .kv{display:flex;justify-content:space-between;border-bottom:1px dotted var(--border);padding:4px 0}
+  .kv span:first-child{color:var(--muted)}
+  .kv span:last-child{font-family:var(--mono)}
+  footer{max-width:960px;margin:0 auto;padding:8px 24px 32px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Virtual Memory Simulator <span>— demand paging, TLB &amp; page replacement</span></h1>
+  <p class="sub">translate → TLB → page-table walk → page fault → evict → write-back.
+    Source: <a href="https://github.com/pastbologanesh0101/vm-simulator" target="_blank" rel="noopener">github.com/pastbologanesh0101/vm-simulator</a></p>
+</header>
+
+<main>
+  <div class="controls">
+    <div class="f"><label>workload</label>
+      <select id="workload">
+        <option value="working-set">working-set (locality)</option>
+        <option value="random">uniform random</option>
+        <option value="sequential">sequential scan</option>
+      </select></div>
+    <div class="f"><label>frames</label><input type="number" id="frames" value="16" min="1" max="512"></div>
+    <div class="f"><label>TLB entries</label><input type="number" id="tlb" value="16" min="0" max="256"></div>
+    <div class="f"><label>references</label><input type="number" id="n" value="20000" min="1000" max="60000" step="1000"></div>
+    <div class="f"><label>write ratio</label><input type="number" id="wr" value="0.3" min="0" max="1" step="0.1"></div>
+    <div class="f"><label>policy (single run)</label>
+      <select id="policy">
+        <option>lru</option><option>fifo</option><option>clock</option>
+        <option>optimal</option><option>random</option>
+      </select></div>
+    <button class="go" id="runOne">Run one ▸</button>
+    <button id="compare">Compare all</button>
+    <button id="belady">Belady's anomaly</button>
+  </div>
+
+  <div class="status" id="status">pick parameters, then Run</div>
+  <div id="results"></div>
+</main>
+
+<footer>Runs server-side on a Vercel Python function. References capped at 60k.</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+const S = $('#status'), R = $('#results');
+const btns = ['#runOne','#compare','#belady'].map($);
+
+function params(extra){
+  return Object.assign({
+    frames:+$('#frames').value, tlb:+$('#tlb').value, n:+$('#n').value,
+    workload:$('#workload').value, write_ratio:+$('#wr').value,
+    policy:$('#policy').value
+  }, extra);
+}
+
+async function call(body){
+  btns.forEach(b => b.disabled = true);
+  S.className='status'; S.textContent='simulating…';
+  const t0 = performance.now();
+  try{
+    const r = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)});
+    const d = await r.json();
+    S.className='status '+(d.ok?'ok':'err');
+    S.textContent=(d.ok?'✓ ':'✗ ')+Math.round(performance.now()-t0)+' ms';
+    if(!d.ok){ R.innerHTML = '<div class="card err">'+esc(d.text||'error')+'</div>'; return; }
+    render(d);
+  }catch(e){ S.className='status err'; S.textContent='✗ '+e; }
+  finally{ btns.forEach(b => b.disabled=false); }
+}
+const esc = s => String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+function render(d){
+  if(d.kind==='run') return renderRun(d);
+  if(d.kind==='compare') return renderCompare(d);
+  if(d.kind==='belady') return renderBelady(d);
+}
+
+function renderRun(d){
+  const s = d.stats;
+  const order = ['accesses','reads','writes','tlb_hits','tlb_misses','tlb_hit_rate',
+    'page_faults','cold_faults','fault_rate','evictions','disk_reads','disk_writes',
+    'page_table_walks','eat_ns'];
+  R.innerHTML = `<div class="card"><h3>${d.policy.toUpperCase()} · ${d.frames} frames · ${d.workload} · ${d.requests.toLocaleString()} refs</h3>
+    <div class="grid2">${order.map(k=>`<div class="kv"><span>${k}</span><span>${s[k]}</span></div>`).join('')}</div></div>`;
+}
+
+function renderCompare(d){
+  const cols = ['page_faults','fault_rate','tlb_hit_rate','disk_writes','evictions','eat_ns'];
+  const rows = Object.entries(d.table).map(([p,m])=>
+    `<tr class="${p===d.best?'best':''}"><td>${p}</td>${cols.map(c=>`<td>${m[c]}</td>`).join('')}</tr>`).join('');
+  R.innerHTML = `<div class="card"><h3>All policies · ${d.frames} frames · ${d.workload} · ${d.requests.toLocaleString()} refs</h3>
+    <table><thead><tr><th>policy</th>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>
+    <div class="note">Fewest faults: <b>${d.best}</b>. OPTIMAL is the offline lower bound no online policy can beat.</div></div>`;
+}
+
+function renderBelady(d){
+  R.innerHTML = `<div class="card"><h3>Belady's anomaly (FIFO, string 1 2 3 4 1 2 5 1 2 3 4 5)</h3>
+    <table><thead><tr><th>frames</th><th>page faults</th></tr></thead><tbody>
+    ${d.rows.map(r=>`<tr><td>${r.frames}</td><td>${r.page_faults}</td></tr>`).join('')}</tbody></table>
+    <div class="note">${esc(d.note)} LRU and OPTIMAL, being stack algorithms, never do this.</div></div>`;
+}
+
+$('#runOne').onclick = () => call(params({mode:'run'}));
+$('#compare').onclick = () => call(params({mode:'compare'}));
+$('#belady').onclick = () => call({mode:'belady'});
+call(params({mode:'compare'}));
+</script>
+</body>
+</html>
