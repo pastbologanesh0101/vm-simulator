@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vmsim"
+version = "0.1.0"
+description = "A virtual-memory / demand-paging simulator: multi-level page table, TLB, FIFO/LRU/Clock/Optimal replacement, Belady's anomaly"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Vishwanathan Tamizharasan" }]
+keywords = ["operating-systems", "virtual-memory", "paging", "page-replacement", "tlb", "lru", "simulator"]
+
+[project.scripts]
+vmsim = "vmsim.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["vmsim"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
