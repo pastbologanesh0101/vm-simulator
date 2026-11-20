@@ -16,3 +16,5 @@ venv/
 # Vercel
 .vercel/
 web/.vercel/
+.claude/settings.local.json
+
